@@ -1,5 +1,22 @@
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  const { action, tabId, intervalSeconds, targetUrl, matchPrefix } = message;
+  // 1. Validate sender is from this extension
+  if (sender.id !== chrome.runtime.id) return;
+
+  const { action, targetUrl, matchPrefix } = message;
+  const tabId = parseInt(message.tabId, 10);
+  const intervalSeconds = Math.max(Number(message.intervalSeconds) || 60, 5);
+
+  // 2. Validate tabId
+  if (!Number.isInteger(tabId) || tabId <= 0) {
+    sendResponse({ success: false, error: "Invalid tabId" });
+    return true;
+  }
+
+  // 3. Validate targetUrl
+  try { new URL(targetUrl); } catch {
+    sendResponse({ success: false, error: "Invalid URL" });
+    return true;
+  }
 
   if (action === "startRefresh") {
     const alarmName = `refresh-${tabId}`;

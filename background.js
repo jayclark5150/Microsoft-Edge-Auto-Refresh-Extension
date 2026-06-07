@@ -1,4 +1,4 @@
-Message.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const { action, tabId, intervalSeconds, targetUrl, matchPrefix } = message;
 
   if (action === "startRefresh") {
@@ -24,4 +24,24 @@ Message.addListener((message, sender, sendResponse) => {
   }
 
   return true;
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  chrome.storage.local.get(alarm.name, (data) => {
+    const entry = data[alarm.name];
+    if (!entry) return;
+
+    chrome.tabs.get(entry.tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab) return;
+
+      const currentUrl = tab.url || "";
+      const match = entry.matchPrefix
+        ? currentUrl.startsWith(entry.targetUrl)
+        : currentUrl === entry.targetUrl;
+
+      if (match) {
+        chrome.tabs.reload(entry.tabId);
+      }
+    });
+  });
 });

@@ -27,13 +27,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
 
     chrome.storage.local.set({
-      [alarmName]: { tabId, targetUrl, matchPrefix }
+      [alarmName]: { tabId, targetUrl, matchPrefix: !!matchPrefix }
     });
 
     sendResponse({ success: true });
-  }
-
-  if (action === "stopRefresh") {
+  } else if (action === "stopRefresh") {
     const alarmName = `refresh-${tabId}`;
     chrome.alarms.clear(alarmName);
     chrome.storage.local.remove(alarmName);
@@ -41,6 +39,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   return true;
+});
+
+function clearAlarmForTab(tabId) {
+  const alarmName = `refresh-${tabId}`;
+  chrome.alarms.clear(alarmName);
+  chrome.storage.local.remove(alarmName);
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  clearAlarmForTab(tabId);
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  chrome.storage.local.get(null, (data) => {
+    for (const key of Object.keys(data)) {
+      if (!key.startsWith("refresh-")) continue;
+      const entry = data[key];
+      chrome.tabs.get(entry.tabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) {
+          chrome.alarms.clear(key);
+          chrome.storage.local.remove(key);
+        }
+      });
+    }
+  });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {

@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Auto Refresh",
+  "version": "1.0.0",
+  "description": "Automatically refresh a webpage at a configurable interval.",
+  "permissions": ["alarms", "storage", "activeTab"],
+  "optional_permissions": ["tabs"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Auto Refresh"
+  }
+}

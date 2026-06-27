@@ -2,14 +2,17 @@
 
 A lightweight Microsoft Edge extension that automatically refreshes a webpage at a configurable interval. Designed for dashboards, admin consoles, status pages, and other web pages that need periodic refreshing.
 
+![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue) ![Version](https://img.shields.io/badge/version-1.1.0-green)
+
 ## Features
 
 - Refresh a page on a set interval (seconds or minutes)
 - Limit refreshing to a **specific URL**
 - Optional **URL prefix matching** (useful for pages with query strings)
 - Independent refresh timers per tab
-- Automatically stops when the tab is closed
+- Automatically stops when the tab is closed or the browser restarts
 - Simple, clean popup interface
+- Privacy-friendly: tab access is requested only when needed, not at install
 
 ## Installation (Developer Mode)
 
@@ -23,7 +26,7 @@ A lightweight Microsoft Edge extension that automatically refreshes a webpage at
 
 ## Usage
 
-1. Open the webpage you want to auto‑refresh
+1. Open the webpage you want to auto-refresh
 2. Click the extension icon
 3. Confirm or edit the **Target URL**
 4. Choose the refresh interval and unit
@@ -40,21 +43,30 @@ The page will only refresh if the tab URL matches the configured target.
 - **Exact match**:  
   Refreshes only when the URL matches exactly
 
+## Permissions
+
+| Permission | Purpose | When requested |
+|------------|---------|----------------|
+| `alarms` | Schedule periodic refresh timers | At install |
+| `storage` | Save active refresh configurations | At install |
+| `activeTab` | Read the current tab's URL to pre-fill the popup | At install |
+| `tabs` | Check tab URLs during background refresh | At first use (optional) |
+
 ## Files
 
 | File | Description |
-|-----|-------------|
-| `manifest.json` | Extension configuration |
+|------|-------------|
+| `manifest.json` | Extension configuration (Manifest V3) |
 | `popup.html` | Popup user interface |
 | `popup.css` | Popup styling |
-| `popup.js` | Popup logic |
-| `background.js` | Background service worker logic |
+| `popup.js` | Popup logic and permission handling |
+| `background.js` | Background service worker, alarms, and tab cleanup |
 
 ## Notes
 
-- This extension does **not** bypass cache by default  
-  (can be changed in `background.js` if needed)
-- Designed for Chromium‑based Edge (Manifest V3)
+- This extension does **not** bypass cache by default (can be changed in `background.js` if needed)
+- Designed for Chromium-based Edge (Manifest V3)
+- Stale alarms are automatically cleaned up on browser restart
 
 ## License
 

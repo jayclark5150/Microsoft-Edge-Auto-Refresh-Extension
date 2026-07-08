@@ -1,0 +1,14 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+*.code-workspace
+
+# Logs / temp
+*.log
+*.tmp
+
+# Local scripts (keep out of the extension release)
+20260708 - Generate Auto Refresh Icons.ps1

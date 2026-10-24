@@ -1,3 +1,7 @@
+const MIN_INTERVAL_SECONDS = 30;
+const BADGE_ON_TEXT = "ON";
+const BADGE_ON_COLOR = "#107c10"; // green
+
 function parseAllowedUrl(value) {
   let parsed;
 
@@ -12,6 +16,14 @@ function parseAllowedUrl(value) {
   }
 
   return parsed;
+}
+
+// Prefix match on whole path segments: "/app" matches "/app" and "/app/x"
+// but not "/application".
+function pathMatchesPrefix(currentPath, targetPath) {
+  const base = targetPath.replace(/\/+$/, "");
+  if (base === "") return true;
+  return currentPath === base || currentPath.startsWith(base + "/");
 }
 
 function urlsMatch(currentUrl, targetUrl, matchPrefix) {
@@ -33,7 +45,7 @@ function urlsMatch(currentUrl, targetUrl, matchPrefix) {
     return current.href === target.href;
   }
 
-  return current.pathname.startsWith(target.pathname);
+  return pathMatchesPrefix(current.pathname, target.pathname);
 }
 
 function createAlarmSafe(name, alarmInfo) {
@@ -114,14 +126,37 @@ function clearBadge(tabId) {
   }
 }
 
+// Shown while a refresh is active and the popup is closed. The live
+// countdown only runs while the popup is open (a service worker cannot
+// tick once per second).
+function setActiveBadge(tabId) {
+  setBadge(tabId, BADGE_ON_TEXT, BADGE_ON_COLOR);
+}
+
+// The popup keeps a port open while its countdown runs. When the popup
+// closes, the port disconnects and the badge falls back to "ON".
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.sender?.id !== chrome.runtime.id) return;
+
+  const match = /^popup-countdown:(\d+)$/.exec(port.name);
+  if (!match) return;
+
+  const tabId = parseInt(match[1], 10);
+  const key = `refresh-${tabId}`;
+
+  port.onDisconnect.addListener(() => {
+    chrome.storage.local.get(key, (data) => {
+      if (data[key]) setActiveBadge(tabId);
+    });
+  });
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 1. Validate sender is from this extension
   if (sender.id !== chrome.runtime.id) return;
 
-  const { action, targetUrl, matchPrefix } = message;
+  const { action, targetUrl, matchPrefix, bypassCache } = message;
   const tabId = parseInt(message.tabId, 10);
-  // Browser alarms do not reliably fire more often than every 30 seconds
-  const intervalSeconds = Math.max(Number(message.intervalSeconds) || 60, 30);
 
   // 2. Validate tabId
   if (!Number.isInteger(tabId) || tabId <= 0) {
@@ -143,6 +178,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         active: true,
         targetUrl: entry.targetUrl,
         matchPrefix: !!entry.matchPrefix,
+        bypassCache: !!entry.bypassCache,
         intervalSeconds: entry.intervalSeconds,
         nextFireTime: entry.nextFireTime
       });
@@ -158,41 +194,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 3. Validate targetUrl (only http/https allowed) — required for start/stop
-  const parsedTargetUrl = parseAllowedUrl(targetUrl);
-  if (!parsedTargetUrl) {
-    sendResponse({ success: false, error: "Only HTTP and HTTPS URLs are supported" });
-    return true;
-  }
-
-  if (action === "startRefresh") {
-    const nextFireTime = Date.now() + intervalSeconds * 1000;
-    Promise.all([
-      createAlarmSafe(alarmName, {
-        delayInMinutes: intervalSeconds / 60,
-        periodInMinutes: intervalSeconds / 60
-      }),
-      storageSetSafe({
-        [alarmName]: {
-          tabId,
-          targetUrl,
-          matchPrefix: !!matchPrefix,
-          intervalSeconds,
-          nextFireTime
-        }
-      })
-    ])
-      .then(() => {
-        setBadge(tabId, intervalSeconds, badgeColorForSeconds(intervalSeconds));
-        sendResponse({ success: true, nextFireTime, intervalSeconds });
-      })
-      .catch((error) => {
-        console.error("startRefresh failed:", error);
-        sendResponse({ success: false, error: error.message || "Failed to start refresh" });
-      });
-    return true;
-  }
-
+  // stopRefresh: does not depend on the URL, so a stale or invalid URL
+  // can never prevent a refresh from being stopped
   if (action === "stopRefresh") {
     Promise.all([
       alarmClearSafe(alarmName),
@@ -205,6 +208,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => {
         console.error("stopRefresh failed:", error);
         sendResponse({ success: false, error: error.message || "Failed to stop refresh" });
+      });
+    return true;
+  }
+
+  if (action === "startRefresh") {
+    // 3. Validate targetUrl (only http/https allowed)
+    const parsedTargetUrl = parseAllowedUrl(targetUrl);
+    if (!parsedTargetUrl) {
+      sendResponse({ success: false, error: "Only HTTP and HTTPS URLs are supported" });
+      return true;
+    }
+
+    // 4. Validate interval (browser alarms do not reliably fire more often
+    // than every 30 seconds)
+    const intervalSeconds = Number(message.intervalSeconds);
+    if (!Number.isFinite(intervalSeconds) || intervalSeconds < MIN_INTERVAL_SECONDS) {
+      sendResponse({
+        success: false,
+        error: `Minimum interval is ${MIN_INTERVAL_SECONDS} seconds`
+      });
+      return true;
+    }
+
+    const nextFireTime = Date.now() + intervalSeconds * 1000;
+    Promise.all([
+      createAlarmSafe(alarmName, {
+        delayInMinutes: intervalSeconds / 60,
+        periodInMinutes: intervalSeconds / 60
+      }),
+      storageSetSafe({
+        [alarmName]: {
+          tabId,
+          targetUrl,
+          matchPrefix: !!matchPrefix,
+          bypassCache: !!bypassCache,
+          intervalSeconds,
+          nextFireTime
+        }
+      })
+    ])
+      .then(() => {
+        setActiveBadge(tabId);
+        sendResponse({ success: true, nextFireTime, intervalSeconds });
+      })
+      .catch((error) => {
+        console.error("startRefresh failed:", error);
+        sendResponse({ success: false, error: error.message || "Failed to start refresh" });
       });
     return true;
   }
@@ -223,6 +273,16 @@ function clearAlarmForTab(tabId) {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   clearAlarmForTab(tabId);
+});
+
+// A page load can clear the per-tab badge, so re-apply it once the page
+// finishes loading while a refresh is active for that tab.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== "complete") return;
+  const key = `refresh-${tabId}`;
+  chrome.storage.local.get(key, (data) => {
+    if (data[key]) setActiveBadge(tabId);
+  });
 });
 
 // Clear all refresh alarms and storage on browser restart
@@ -245,15 +305,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       if (chrome.runtime.lastError || !tab) return;
       const currentUrl = tab.url || "";
       if (urlsMatch(currentUrl, entry.targetUrl, entry.matchPrefix)) {
-        chrome.tabs.reload(entry.tabId);
+        chrome.tabs.reload(entry.tabId, { bypassCache: !!entry.bypassCache });
       }
-      // Roll forward the next fire time and reset the badge to the interval
+      // Roll forward the next fire time
       const interval = Number(entry.intervalSeconds) || 60;
       const nextFireTime = Date.now() + interval * 1000;
       chrome.storage.local.set({
         [alarm.name]: { ...entry, nextFireTime }
       });
-      setBadge(entry.tabId, interval, badgeColorForSeconds(interval));
+      setActiveBadge(entry.tabId);
     });
   });
 });

@@ -2,13 +2,17 @@ const targetUrlInput = document.getElementById("target-url");
 const intervalInput = document.getElementById("interval");
 const unitSelect = document.getElementById("unit");
 const matchPrefixCheckbox = document.getElementById("match-prefix");
+const bypassCacheCheckbox = document.getElementById("bypass-cache");
 const startBtn = document.getElementById("start-btn");
 const stopBtn = document.getElementById("stop-btn");
 const statusEl = document.getElementById("status");
 
+const MIN_INTERVAL_SECONDS = 30;
+
 let currentTabId = null;
 let countdownTimer = null;
 let nextFireTime = null;
+let badgePort = null;
 
 function showError(msg) {
   statusEl.textContent = msg;
@@ -20,17 +24,42 @@ function showActiveStatus(remainingSeconds) {
   statusEl.className = "status active";
 }
 
+// While the popup is open it holds a port to the service worker. When the
+// popup closes the port disconnects and the badge falls back to "ON".
+function openBadgePort() {
+  closeBadgePort();
+  try {
+    badgePort = chrome.runtime.connect({ name: `popup-countdown:${currentTabId}` });
+  } catch (error) {
+    console.error("connect failed:", error);
+    badgePort = null;
+  }
+}
+
+function closeBadgePort() {
+  if (badgePort) {
+    try {
+      badgePort.disconnect();
+    } catch {
+      // Already disconnected
+    }
+    badgePort = null;
+  }
+}
+
 function stopCountdown() {
   if (countdownTimer !== null) {
     clearInterval(countdownTimer);
     countdownTimer = null;
   }
   nextFireTime = null;
+  closeBadgePort();
 }
 
 function startCountdown(nextFireTimeMs) {
   stopCountdown();
   nextFireTime = nextFireTimeMs;
+  openBadgePort();
 
   const tick = () => {
     if (!nextFireTime) return;
@@ -81,7 +110,8 @@ async function init() {
       if (response && response.active) {
         setActiveState({
           targetUrl: response.targetUrl,
-          matchPrefix: response.matchPrefix
+          matchPrefix: response.matchPrefix,
+          bypassCache: response.bypassCache
         });
         if (response.nextFireTime) {
           startCountdown(response.nextFireTime);
@@ -101,11 +131,13 @@ function setActiveState(entry) {
   intervalInput.disabled = true;
   unitSelect.disabled = true;
   matchPrefixCheckbox.disabled = true;
+  bypassCacheCheckbox.disabled = true;
   statusEl.textContent = "Refreshing...";
   statusEl.className = "status active";
   if (entry) {
     targetUrlInput.value = entry.targetUrl || "";
     matchPrefixCheckbox.checked = !!entry.matchPrefix;
+    bypassCacheCheckbox.checked = !!entry.bypassCache;
   }
 }
 
@@ -117,6 +149,7 @@ function setInactiveState() {
   intervalInput.disabled = false;
   unitSelect.disabled = false;
   matchPrefixCheckbox.disabled = false;
+  bypassCacheCheckbox.disabled = false;
   statusEl.textContent = "";
   statusEl.className = "status";
 }
@@ -125,6 +158,15 @@ startBtn.addEventListener("click", async () => {
   const intervalValue = parseInt(intervalInput.value, 10);
   if (!intervalValue || intervalValue < 1) {
     showError("Enter a valid interval");
+    return;
+  }
+
+  const intervalSeconds = unitSelect.value === "minutes"
+    ? intervalValue * 60
+    : intervalValue;
+
+  if (intervalSeconds < MIN_INTERVAL_SECONDS) {
+    showError(`Minimum interval is ${MIN_INTERVAL_SECONDS} seconds`);
     return;
   }
 
@@ -142,15 +184,12 @@ startBtn.addEventListener("click", async () => {
     return;
   }
 
-  const intervalSeconds = unitSelect.value === "minutes"
-    ? intervalValue * 60
-    : intervalValue;
-
   chrome.runtime.sendMessage({
     action: "startRefresh",
     tabId: currentTabId,
     targetUrl: targetUrlInput.value.trim(),
     matchPrefix: matchPrefixCheckbox.checked,
+    bypassCache: bypassCacheCheckbox.checked,
     intervalSeconds
   }, (response) => {
     if (chrome.runtime.lastError) {
@@ -171,8 +210,7 @@ startBtn.addEventListener("click", async () => {
 stopBtn.addEventListener("click", () => {
   chrome.runtime.sendMessage({
     action: "stopRefresh",
-    tabId: currentTabId,
-    targetUrl: targetUrlInput.value.trim()
+    tabId: currentTabId
   }, (response) => {
     if (chrome.runtime.lastError) {
       showError(chrome.runtime.lastError.message || "Failed to stop");
@@ -187,7 +225,7 @@ stopBtn.addEventListener("click", () => {
 });
 
 // Stop the countdown interval when popup is closed to avoid leaked timers
-window.addEventListener("unload", () => {
+window.addEventListener("pagehide", () => {
   stopCountdown();
 });
 

@@ -13,7 +13,7 @@
     <div class="row">
       <div class="field">
         <label for="interval">Interval</label>
-        <input type="number" id="interval" min="30" value="60"/>
+        <input type="number" id="interval" min="1" value="60"/>
       </div>
       <div class="field">
         <label for="unit">Unit</label>
@@ -26,6 +26,10 @@
     <div class="checkbox-row">
       <input type="checkbox" id="match-prefix" checked/>
       <label for="match-prefix">Match URL prefix only</label>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="bypass-cache"/>
+      <label for="bypass-cache">Bypass cache on refresh</label>
     </div>
     <div class="actions">
       <button id="start-btn" class="btn btn-start">Start</button>

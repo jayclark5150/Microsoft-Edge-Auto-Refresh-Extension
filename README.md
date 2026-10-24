@@ -2,14 +2,15 @@
 
 A lightweight Microsoft Edge extension that automatically refreshes a webpage at a configurable interval. Designed for dashboards, admin consoles, status pages, and other web pages that need periodic refreshing.
 
-[Manifest V3](https://img.shields.io/badge/Manifest-V3-blue) [Version](https://img.shields.io/badge/versionen
+![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue) ![Version](https://img.shields.io/badge/version-1.2.1-green)
 
 ### Features
 - Refresh a page on a set interval (seconds or minutes)
 - Limit refreshing to a **specific URL**
 - Optional **URL prefix matching** (useful for pages with query strings)
+- Optional **bypass cache** on each refresh
 - Independent refresh timers per tab
-- **Live countdown badge** on the toolbar icon (green → orange → red as refresh approaches)
+- **Live countdown badge** on the toolbar icon while the popup is open (green → orange → red as refresh approaches); the badge shows **ON** while a refresh is active and the popup is closed
 - **Popup countdown** text ("Next refresh in Ns")
 - Automatically stops when the tab is closed or the browser restarts
 - Simple, clean popup interface
@@ -31,21 +32,25 @@ A lightweight Microsoft Edge extension that automatically refreshes a webpage at
 - Click the extension icon
 - Confirm or edit the **Target URL**
 - Choose the refresh interval and unit (minimum 30 seconds)
+- Optionally check **Bypass cache on refresh**
 - Click **Start**
 
 The page will only refresh if the tab URL matches the configured target.
 
 #### URL Matching Options
 - **Match prefix** (default):
-Refreshes as long as the current URL's origin matches the target and the current path starts with the target path
+Refreshes as long as the current URL's origin matches the target and the current path starts with the target path, compared on whole path segments (a target of `/app` matches `/app` and `/app/page` but not `/application`)
 (recommended for sites with changing parameters)
 - **Exact match**:
 Refreshes only when the URL matches exactly
 
-#### Countdown Badge Colors
+#### Countdown Badge
+While the popup is open, the toolbar badge shows the seconds remaining:
 - **Green** — more than 10 seconds remain
 - **Orange** — 6 to 10 seconds remain
 - **Red** — 5 seconds or less until refresh
+
+When the popup is closed, the badge shows **ON** (green) for any tab with an active refresh. A browser extension cannot tick once per second in the background, so the live countdown is only shown while the popup is open.
 
 ### Permissions
 
@@ -171,12 +176,24 @@ Extension icons (16, 32, 48, 128 px)
 
 
 ### Notes
-- This extension does **not** bypass cache by default (can be changed in background.js if needed)
+- The extension does **not** bypass the cache unless you check **Bypass cache on refresh** in the popup
 - Designed for Chromium-based Edge (Manifest V3)
 - Alarms and storage are automatically cleared on browser restart
 - Minimum refresh interval is 30 seconds (browser alarm API limitation)
 
 ### Changelog
+
+#### v1.2.1 (2026-10-24)
+- **Fix**: The toolbar badge no longer freezes on a stale number after the popup closes; it shows **ON** instead, and the live countdown is documented as popup-open only
+- **Fix**: The badge is re-applied after each page load, since a reload can clear it
+- **Fix**: Intervals under 30 seconds now show a "Minimum interval is 30 seconds" error instead of being silently raised
+- **Fix**: Stop no longer depends on the Target URL field being valid
+- **Fix**: Unknown actions now return "Unknown action" instead of a URL error
+- **Fix**: Repaired the broken version badge at the top of this README
+- **Change**: Prefix matching now compares whole path segments (`/app` no longer matches `/application`)
+- **Change**: The interval input minimum is now enforced in code, since the old `min="30"` also applied when the unit was minutes
+- **Change**: The popup uses `pagehide` instead of the deprecated `unload` event
+- **New**: Optional **Bypass cache on refresh** checkbox
 
 #### v1.2.0 (2026-07-08)
 - **Security**: Restricted refresh targets to `http:` and `https:` schemes only
